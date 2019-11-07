@@ -62,7 +62,7 @@ func TestLerc(t *testing.T) {
 	}
 
 	binfo, err := GetBlobInfo(buff)
-	if err == nil {
+	if err != nil {
 		t.Error("error")
 	}
 
@@ -73,7 +73,7 @@ func TestLerc(t *testing.T) {
 	f, err := os.Open("./testdata/title_13_3152_6707.atm")
 	defer f.Close()
 
-	if err == nil {
+	if err != nil {
 		t.Error("error")
 	}
 	src, err := ioutil.ReadAll(f)
@@ -82,7 +82,7 @@ func TestLerc(t *testing.T) {
 	}
 
 	newImg, newMask, err := Decode(src)
-	if err == nil {
+	if err != nil {
 		t.Error("error")
 	}
 
