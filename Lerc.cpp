@@ -24,6 +24,8 @@ Contributors:  Thomas Maurer
 #include "Defines.h"
 #include "Lerc.h"
 #include "Lerc2.h"
+#include <typeinfo>
+#include <limits>
 
 #ifdef HAVE_LERC1_DECODE
 #include "CntZImage.h"
@@ -81,11 +83,7 @@ ErrCode Lerc::GetLercInfo(const Byte* pLercBlob, unsigned int numBytesBlob, stru
   lercInfo.RawInit();
 
   // first try Lerc2
-
-  //unsigned int minNumBytesHeader = Lerc2::MinNumBytesNeededToReadHeader();
-
   struct Lerc2::HeaderInfo lerc2Info;
-  //if (minNumBytesHeader <= numBytesBlob && Lerc2::GetHeaderInfo(pLercBlob, lerc2Info))
   if (Lerc2::GetHeaderInfo(pLercBlob, numBytesBlob, lerc2Info))
   {
     lercInfo.version = lerc2Info.version;
@@ -103,12 +101,6 @@ ErrCode Lerc::GetLercInfo(const Byte* pLercBlob, unsigned int numBytesBlob, stru
     if (lercInfo.blobSize > (int)numBytesBlob)    // truncated blob, we won't be able to read this band
       return ErrCode::BufferTooSmall;
 
-    //while (lercInfo.blobSize + minNumBytesHeader < numBytesBlob)    // means there could be another band
-    //{
-    //  struct Lerc2::HeaderInfo hdInfo;
-    //  if (!Lerc2::GetHeaderInfo(pLercBlob + lercInfo.blobSize, hdInfo))
-    //    return ErrCode::Ok;    // no other band, we are done
-
     struct Lerc2::HeaderInfo hdInfo;
     while (Lerc2::GetHeaderInfo(pLercBlob + lercInfo.blobSize, numBytesBlob - lercInfo.blobSize, hdInfo))
     {
@@ -121,6 +113,9 @@ ErrCode Lerc::GetLercInfo(const Byte* pLercBlob, unsigned int numBytesBlob, stru
       {
         return ErrCode::Failed;
       }
+
+      if (lercInfo.blobSize > std::numeric_limits<int>::max() - hdInfo.blobSize)
+        return ErrCode::Failed;
 
       lercInfo.blobSize += hdInfo.blobSize;
 
@@ -157,9 +152,11 @@ ErrCode Lerc::GetLercInfo(const Byte* pLercBlob, unsigned int numBytesBlob, stru
     Byte* ptr = const_cast<Byte*>(pLercBlob);
     ptr += 10 + 2 * sizeof(int);
 
-    int height = *((const int*)ptr);  ptr += sizeof(int);
-    int width  = *((const int*)ptr);  ptr += sizeof(int);
-    double maxZErrorInFile = *((const double*)ptr);
+    int height(0), width(0);
+    memcpy(&height, ptr, sizeof(int));  ptr += sizeof(int);
+    memcpy(&width,  ptr, sizeof(int));  ptr += sizeof(int);
+    double maxZErrorInFile(0);
+    memcpy(&maxZErrorInFile, ptr, sizeof(double));
 
     if (height > 20000 || width > 20000)    // guard against bogus numbers; size limitation for old Lerc1
       return ErrCode::Failed;

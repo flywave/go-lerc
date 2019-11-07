@@ -1,3 +1,6 @@
+// Copyright (c) 2019-present FlyWave, Inc. All Rights Reserved.
+// See License.txt for license information.
+
 package lerc
 
 /*
@@ -68,7 +71,7 @@ func GetBlobInfo(b []byte) (BlobInfo, error) {
 	drptr := (*C.double)(unsafe.Pointer(&dataRangeArr[0]))
 
 	biptr := (*C.uint)(unsafe.Pointer(&binfo[0]))
-	ptr := (*C.uchar)(unsafe.Pointer(&b[0]))
+	ptr := (*C.uchar)(C.CBytes(b))
 	len := len(b)
 	state := C.lerc_getBlobInfo(ptr, C.uint(len), biptr, drptr, 10, 3)
 	if uint(state) != 0 {
@@ -107,25 +110,81 @@ func makeData(size uint32, dataType uint32) (interface{}, unsafe.Pointer) {
 	return nil, nil
 }
 
-func lercDecode(b []byte, info BlobInfo) (interface{}, error) {
-	ptr := (*C.uchar)(unsafe.Pointer(&b[0]))
+func lercDecode(b []byte, info BlobInfo) (interface{}, []byte, error) {
+	ptr := (*C.uchar)(C.CBytes(b))
 	len := len(b)
-
+	mask := make([]byte, info.Cols()*info.Rows())
 	raster, uptr := makeData(info.Cols()*info.Rows(), info.DataType())
-	state := C.lerc_decode(ptr, C.uint(len), nil, C.int(info.Dim()),
-		C.int(info.Cols()), C.int(info.Rows()), C.int(info.Bands()),
+
+	state := C.lerc_decode(ptr, C.uint(len), (*C.uchar)(unsafe.Pointer(&mask[0])),
+		C.int(info.Dim()), C.int(info.Cols()), C.int(info.Rows()), C.int(info.Bands()),
 		C.uint(info.DataType()), uptr)
 
 	if uint(state) != 0 {
-		return nil, errors.New("lercDecode error")
+		return nil, nil, errors.New("lercDecode error")
 	}
-	return raster, nil
+	return raster, mask, nil
 }
 
-func Decode(b []byte) (interface{}, error) {
+func Decode(b []byte) (interface{}, []byte, error) {
 	binfo, err := GetBlobInfo(b)
+	if err != nil {
+		return nil, nil, err
+	}
+	return lercDecode(b, binfo)
+}
+
+func getDataType(size interface{}) (uint32, unsafe.Pointer, error) {
+	switch t := size.(type) {
+	case []int8:
+		return DT_CHAR, unsafe.Pointer(&t[0]), nil
+	case []uint8:
+		return DT_UCHAR, unsafe.Pointer(&t[0]), nil
+	case []int16:
+		return DT_SHORT, unsafe.Pointer(&t[0]), nil
+	case []uint16:
+		return DT_USHORT, unsafe.Pointer(&t[0]), nil
+	case []int32:
+		return DT_INT, unsafe.Pointer(&t[0]), nil
+	case []uint32:
+		return DT_UINT, unsafe.Pointer(&t[0]), nil
+	case []float32:
+		return DT_FLOAT, unsafe.Pointer(&t[0]), nil
+	case []float64:
+		return DT_DOUBLE, unsafe.Pointer(&t[0]), nil
+	}
+	return 0, nil, nil
+}
+
+func ComputeCompressedSize(b interface{}, dim int, cols int, rows int, bands int, mask []byte, maxZErr float64) (uint32, error) {
+	dt, ptr, err := getDataType(b)
+	if err != nil {
+		return 0, err
+	}
+	var outlen uint32
+	state := C.lerc_computeCompressedSize(ptr, C.uint(dt), C.int(dim), C.int(cols),
+		C.int(rows), C.int(bands), (*C.uchar)(unsafe.Pointer(&mask[0])),
+		C.double(maxZErr), (*C.uint)(unsafe.Pointer(&outlen)))
+	if uint(state) != 0 {
+		return 0, errors.New("lerc ComputeCompressedSize error")
+	}
+	return outlen, nil
+}
+
+func Encode(b interface{}, dim int, cols int, rows int, bands int, mask []byte, maxZErr float64) ([]byte, error) {
+	size, err := ComputeCompressedSize(b, dim, cols, rows, bands, mask, maxZErr)
 	if err != nil {
 		return nil, err
 	}
-	return lercDecode(b, binfo)
+	dt, ptr, err := getDataType(b)
+	buff := make([]byte, size)
+	var outlen uint32
+	state := C.lerc_encode(ptr, C.uint(dt), C.int(dim), C.int(cols),
+		C.int(rows), C.int(bands), (*C.uchar)(unsafe.Pointer(&mask[0])),
+		C.double(maxZErr), (*C.uchar)(unsafe.Pointer(&buff[0])),
+		C.uint(size), (*C.uint)(unsafe.Pointer(&outlen)))
+	if uint(state) != 0 {
+		return nil, errors.New("lercEncode error")
+	}
+	return buff[0:outlen], nil
 }
