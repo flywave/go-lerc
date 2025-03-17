@@ -3,6 +3,7 @@ package lerc
 /*
 #include "Lerc_c_api.h"
 #cgo CFLAGS: -I ./
+#cgo CXXFLAGS: -std=c++14
 */
 import "C"
 import (
